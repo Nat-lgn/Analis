@@ -1,0 +1,227 @@
+import asyncio
+import logging
+import os
+import datetime
+import hashlib
+from dotenv import load_dotenv
+
+from aiogram import Bot, Dispatcher, types, F
+from aiogram.filters import Command
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+
+from parser import parse_report
+from database import init_db, save_report, get_analytics
+
+# ==========================================
+# 1. НАСТРОЙКА ЛОГИРОВАНИЯ
+# ==========================================
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler("bot.log", encoding='utf-8'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
+
+# ==========================================
+# 2. FSM СОСТОЯНИЯ
+# ==========================================
+class StatFlow(StatesGroup):
+    waiting_for_period = State()
+
+# ==========================================
+# 3. КОНФИГУРАЦИЯ И МЕНЮ
+# ==========================================
+load_dotenv()
+BOT_TOKEN = os.getenv('BOT_TOKEN')
+
+bot = Bot(token=BOT_TOKEN)
+dp = Dispatcher()
+
+main_menu = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton(text="📊 Моя статистика")],
+        [KeyboardButton(text="ℹ️ Как пользоваться")]
+    ],
+    resize_keyboard=True,
+    input_field_placeholder="Перешли мне отчет из игры..."
+)
+
+# Клавиатура Шаг 1 (Категории)
+category_kb = InlineKeyboardMarkup(inline_keyboard=[
+    [InlineKeyboardButton(text="🏹 Ловы", callback_data="cat_Ловы"),
+     InlineKeyboardButton(text="🏕 Походы", callback_data="cat_Походы")],
+    [InlineKeyboardButton(text="📜 Ежедневки", callback_data="cat_Ежедневные задания"),
+     InlineKeyboardButton(text="👹 Босс", callback_data="cat_Босс")],
+    [InlineKeyboardButton(text="⛰ Катакомбы", callback_data="cat_Катакомбы"),
+     InlineKeyboardButton(text="🛡 Стояние", callback_data="cat_Стояние")],
+    [InlineKeyboardButton(text="🌍 ВСЕ КАТЕГОРИИ", callback_data="cat_all")]
+])
+
+# Клавиатура Шаг 2 (Периоды)
+period_kb = InlineKeyboardMarkup(inline_keyboard=[
+    [InlineKeyboardButton(text="Сегодня", callback_data="period_today"),
+     InlineKeyboardButton(text="Вчера", callback_data="period_yesterday")],
+    [InlineKeyboardButton(text="За неделю", callback_data="period_week"),
+     InlineKeyboardButton(text="За месяц", callback_data="period_month")],
+    [InlineKeyboardButton(text="Всё время", callback_data="period_all")],
+    [InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_categories")]
+])
+
+# ==========================================
+# 4. БАЗОВЫЕ ОБРАБОТЧИКИ СООБЩЕНИЙ
+# ==========================================
+@dp.message(Command("start"))
+async def start_handler(message: types.Message, state: FSMContext):
+    await state.clear()
+    welcome_text = (
+        "Привет! Я твой личный трекер для игры @Zapaleni_bot.\n\n"
+        "Просто пересылай мне сообщения о фарме, и я всё подсчитаю. "
+        "Твоя статистика полностью приватна."
+    )
+    await message.reply(welcome_text, reply_markup=main_menu)
+
+@dp.message(Command("stat"))
+@dp.message(F.text == "📊 Моя статистика")
+async def stat_command_handler(message: types.Message, state: FSMContext):
+    """Входная точка. Выдаем выбор категории."""
+    await state.clear()
+    await message.reply("📊 Шаг 1: Выбери категорию для анализа:", reply_markup=category_kb)
+
+@dp.message(F.text == "ℹ️ Как пользоваться")
+async def help_handler(message: types.Message, state: FSMContext):
+    await state.clear()
+    instructions = (
+        "📝 *Инструкция:*\n"
+        "1. Зайди в игру.\n"
+        "2. Выдели сообщение с успешным фармом (где есть опыт и золото).\n"
+        "3. Нажми «Переслать» и отправь его мне.\n"
+        "4. Я зафиксирую данные и защищу их от дублирования."
+    )
+    await message.reply(instructions, parse_mode="Markdown")
+
+@dp.message(F.text)
+async def forward_handler(message: types.Message, state: FSMContext):
+    await state.clear()
+    try:
+        report = parse_report(message.text)
+        if report:
+            orig_date = message.forward_origin.date if message.forward_origin else message.date
+            raw_string = f"{message.from_user.id}_{orig_date.timestamp()}_{message.text}"
+            report_hash = hashlib.md5(raw_string.encode()).hexdigest()
+
+            # Форматируем дату в стандартный вид YYYY-MM-DD HH:MM:SS для базы данных
+            formatted_date = orig_date.strftime("%Y-%m-%d %H:%M:%S")
+
+            # Передаем дату шестым аргументом
+            is_saved = await save_report(
+                message.from_user.id, report.activity, report.gold, report.exp, report_hash, formatted_date
+            )
+
+            if is_saved:
+                logger.info(f"Распарсено: {report.activity} | +{report.gold}💰 | +{report.exp}⭐️")
+                await message.reply(f"✅ Записано!\nАктивность: {report.activity}\n+{report.gold} 💰 | +{report.exp} ⭐️")
+            else:
+                logger.info("Обнаружен дубликат. Запись отклонена.")
+                await message.reply("⚠️ Этот отчет уже был записан ранее. Дубликат проигнорирован.")
+        else:
+            logger.debug("Сообщение проигнорировано (не подошло под регулярные выражения).")
+
+    except Exception as e:
+        logger.error(f"Сбой при обработке сообщения: {e}", exc_info=True)
+
+# ==========================================
+# 5. ОБРАБОТЧИКИ СТАТИСТИКИ
+# ==========================================
+
+@dp.callback_query(F.data == "back_to_categories")
+async def back_to_categories_handler(callback: CallbackQuery, state: FSMContext):
+    """Кнопка Назад из меню периодов."""
+    await state.clear()
+    await callback.message.edit_text("📊 Шаг 1: Выбери категорию для анализа:", reply_markup=category_kb)
+    await callback.answer()
+
+
+@dp.callback_query(F.data.startswith("cat_"))
+async def process_category_selection(callback: CallbackQuery, state: FSMContext):
+    """Шаг 2: Категория выбрана, сохраняем в FSM, выдаем периоды."""
+    activity = callback.data.split("_")[1]
+
+    # Сохраняем в оперативную память выбранную категорию
+    await state.update_data(activity=activity)
+    await state.set_state(StatFlow.waiting_for_period)
+
+    cat_name = "ВСЕ КАТЕГОРИИ" if activity == "all" else activity
+    await callback.message.edit_text(
+        f"📂 Выбрана категория: **{cat_name}**\n\n📅 Шаг 2: Выбери период:",
+        reply_markup=period_kb,
+        parse_mode="Markdown"
+    )
+    await callback.answer()
+
+
+@dp.callback_query(F.data.startswith("period_"), StatFlow.waiting_for_period)
+async def process_period_selection(callback: CallbackQuery, state: FSMContext):
+    """Шаг 3: Период выбран, генерируем отчет и сбрасываем FSM."""
+    period = callback.data.split("_")[1]
+
+    data = await state.get_data()
+    activity = data['activity']
+
+    # Запрос в БД
+    stats = await get_analytics(callback.from_user.id, activity, period)
+    await state.clear()
+
+    period_names = {
+        "today": "Сегодня", "yesterday": "Вчера",
+        "week": "Неделю", "month": "Месяц", "all": "Всё время"
+    }
+    cat_name = "ВСЕ КАТЕГОРИИ" if activity == "all" else activity
+
+    if not stats:
+        text = f"📭 У тебя нет записей по категории **{cat_name}** за период: *{period_names.get(period)}*."
+        await callback.message.edit_text(text, parse_mode="Markdown")
+        await callback.answer()
+        return
+
+    # Формирование отчета
+    final_text = f"📊 Аналитика: **{cat_name}** ({period_names.get(period)})\n\n"
+    total_gold = 0
+    total_exp = 0
+
+    for act_name, values in stats.items():
+        final_text += f"🔹 **{act_name}**\n"
+        final_text += f"   💰 Золото: {values['gold']}\n"
+        final_text += f"   ⭐️ Опыт: {values['exp']}\n\n"
+        total_gold += values['gold']
+        total_exp += values['exp']
+
+    if activity == "all" and len(stats) > 1:
+        final_text += f"📈 **ИТОГО:**\n💰 {total_gold} | ⭐️ {total_exp}"
+
+    # Даем возможность выбрать другой период, не возвращаясь в самое начало
+    await callback.message.edit_text(final_text, reply_markup=period_kb, parse_mode="Markdown")
+    # Чтобы интерфейс не ломался, если юзер передумает, возвращаем состояние (но это опционально)
+    await state.set_state(StatFlow.waiting_for_period)
+    await state.update_data(activity=activity)
+
+    await callback.answer()
+
+# ==========================================
+# 6. ЗАПУСК ПРИЛОЖЕНИЯ
+# ==========================================
+async def main():
+    logger.info("Инициализация публичного бота...")
+    await init_db()
+    logger.info("Бот запущен. Ожидание пересланных сообщений.")
+    await dp.start_polling(bot)
+
+if __name__ == '__main__':
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logger.info("Работа бота завершена пользователем.")
