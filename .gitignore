@@ -1,0 +1,30 @@
+# Скрытые переменные окружения
+.env
+zapaleni_stats.db
+__pycache__/
+bot.log
+
+# Виртуальное окружение Python
+venv/
+env/
+
+# Кэш и скомпилированные файлы
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Сессии Telethon (Критически важно!)
+*.session
+*.session-journal
+
+# Базы данных SQLite (чтобы не пушить рабочую базу с реальной статой)
+*.db
+*.sqlite
+*.sqlite3
+
+# Логи работы бота
+*.log
+
+# Настройки редакторов (PyCharm, VSCode)
+.idea/
+.vscode/
