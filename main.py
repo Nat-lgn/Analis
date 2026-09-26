@@ -79,9 +79,9 @@ period_kb = InlineKeyboardMarkup(inline_keyboard=[
 async def start_handler(message: types.Message, state: FSMContext):
     await state.clear()
     welcome_text = (
-        "Привет! Я твой личный трекер для игры @Zapaleni_bot.\n\n"
-        "Просто пересылай мне сообщения о фарме, и я всё подсчитаю. "
-        "Твоя статистика полностью приватна."
+        "Привіт! Я твій особистий трекер для гри @Zapaleni_bot.\n\n"
+        "Просто пересилай мені повідомлення про фарму, і я все підрахую. "
+        "Твоя статистика повністю приватна."
     )
     await message.reply(welcome_text, reply_markup=main_menu)
 
@@ -90,50 +90,71 @@ async def start_handler(message: types.Message, state: FSMContext):
 async def stat_command_handler(message: types.Message, state: FSMContext):
     """Входная точка. Выдаем выбор категории."""
     await state.clear()
-    await message.reply("📊 Шаг 1: Выбери категорию для анализа:", reply_markup=category_kb)
+    await message.reply("📊 Крок 1: Виберіть категорію для аналізу:", reply_markup=category_kb)
 
-@dp.message(F.text == "ℹ️ Как пользоваться")
+@dp.message(F.text == "ℹ️ Як користуватись")
 async def help_handler(message: types.Message, state: FSMContext):
     await state.clear()
     instructions = (
-        "📝 *Инструкция:*\n"
-        "1. Зайди в игру.\n"
-        "2. Выдели сообщение с успешным фармом (где есть опыт и золото).\n"
-        "3. Нажми «Переслать» и отправь его мне.\n"
-        "4. Я зафиксирую данные и защищу их от дублирования."
+        "📝 *Інструкція:*\n"
+        "1. Зайди в гру.\n"
+        "2. Виділили повідомлення з успішним фармом (де є досвід та золото).\n"
+        "3. Натисни «Переслати» і відправ його мені.\n"
+        "4. Я зафіксую дані та захищу їх від дублювання."
     )
     await message.reply(instructions, parse_mode="Markdown")
 
-@dp.message(F.text)
+
+@dp.message(F.text | F.caption)
 async def forward_handler(message: types.Message, state: FSMContext):
     await state.clear()
     try:
-        report = parse_report(message.text)
+        # Безопасное извлечение: берем text, если его нет - берем caption
+        raw_text = message.text or message.caption
+
+        report = parse_report(raw_text)
         if report:
             orig_date = message.forward_origin.date if message.forward_origin else message.date
-            raw_string = f"{message.from_user.id}_{orig_date.timestamp()}_{message.text}"
+            # Хэш тоже должен строиться на основе raw_text
+            raw_string = f"{message.from_user.id}_{orig_date.timestamp()}_{raw_text}"
             report_hash = hashlib.md5(raw_string.encode()).hexdigest()
 
-            # Форматируем дату в стандартный вид YYYY-MM-DD HH:MM:SS для базы данных
             formatted_date = orig_date.strftime("%Y-%m-%d %H:%M:%S")
 
-            # Передаем дату шестым аргументом
             is_saved = await save_report(
-                message.from_user.id, report.activity, report.gold, report.exp, report_hash, formatted_date
+                message.from_user.id, report.activity, report.gold, report.exp,
+                report.nebesna, report.svaroja, report.fragment,
+                report.armor_scroll, report.weapon_scroll,
+                report_hash, formatted_date
             )
 
             if is_saved:
-                logger.info(f"Распарсено: {report.activity} | +{report.gold}💰 | +{report.exp}⭐️")
-                await message.reply(f"✅ Записано!\nАктивность: {report.activity}\n+{report.gold} 💰 | +{report.exp} ⭐️")
+                # Базовый текст с золотом и опытом
+                reply_text = f"✅ Записано!\nАктивність: {report.activity}\n+{report.gold} 💰 | +{report.exp} ⭐️"
+
+                # Динамическая сборка списка выпавших материалов
+                materials = []
+                if report.nebesna > 0: materials.append(f"⭐ Небесна: {report.nebesna}")
+                if report.svaroja > 0: materials.append(f"🪨 Сварожа: {report.svaroja}")
+                if report.fragment > 0: materials.append(f"🧩 Фрагмент: {report.fragment}")
+                if report.armor_scroll > 0: materials.append(f"🛡 Сувій обладунку: {report.armor_scroll}")
+                if report.weapon_scroll > 0: materials.append(f"🗡 Сувій зброї: {report.weapon_scroll}")
+
+                # Если список не пустой, добавляем его к ответу
+                if materials:
+                    reply_text += f"\n📦 Здобуто: {', '.join(materials)}"
+
+                logger.info(
+                    f"Распарсено: {report.activity} | +{report.gold}💰 | +{report.exp}⭐️ | Матеріали: {materials}")
+                await message.reply(reply_text)
             else:
-                logger.info("Обнаружен дубликат. Запись отклонена.")
-                await message.reply("⚠️ Этот отчет уже был записан ранее. Дубликат проигнорирован.")
+                logger.info("Виявлено дублікат. Запис відхилено.")
+                await message.reply("⚠️ Цей звіт уже було записано раніше. Дублікат проігноровано.")
         else:
             logger.debug("Сообщение проигнорировано (не подошло под регулярные выражения).")
 
     except Exception as e:
         logger.error(f"Сбой при обработке сообщения: {e}", exc_info=True)
-
 # ==========================================
 # 5. ОБРАБОТЧИКИ СТАТИСТИКИ
 # ==========================================
@@ -142,7 +163,7 @@ async def forward_handler(message: types.Message, state: FSMContext):
 async def back_to_categories_handler(callback: CallbackQuery, state: FSMContext):
     """Кнопка Назад из меню периодов."""
     await state.clear()
-    await callback.message.edit_text("📊 Шаг 1: Выбери категорию для анализа:", reply_markup=category_kb)
+    await callback.message.edit_text("📊 Шаг 1: Обери категорію:", reply_markup=category_kb)
     await callback.answer()
 
 
@@ -155,9 +176,9 @@ async def process_category_selection(callback: CallbackQuery, state: FSMContext)
     await state.update_data(activity=activity)
     await state.set_state(StatFlow.waiting_for_period)
 
-    cat_name = "ВСЕ КАТЕГОРИИ" if activity == "all" else activity
+    cat_name = "ВСІ КАТЕГОРІЇ" if activity == "all" else activity
     await callback.message.edit_text(
-        f"📂 Выбрана категория: **{cat_name}**\n\n📅 Шаг 2: Выбери период:",
+        f"📂 Обрана категорія: **{cat_name}**\n\n📅 Шаг 2: Обери період:",
         reply_markup=period_kb,
         parse_mode="Markdown"
     )
@@ -177,31 +198,41 @@ async def process_period_selection(callback: CallbackQuery, state: FSMContext):
     await state.clear()
 
     period_names = {
-        "today": "Сегодня", "yesterday": "Вчера",
-        "week": "Неделю", "month": "Месяц", "all": "Всё время"
+        "today": "Сьогодні", "yesterday": "Вчора",
+        "week": "Тиждень", "month": "Місяць", "all": "Весь час"
     }
-    cat_name = "ВСЕ КАТЕГОРИИ" if activity == "all" else activity
+    cat_name = "ВСІ КАТЕГОРІЇ" if activity == "all" else activity
 
     if not stats:
-        text = f"📭 У тебя нет записей по категории **{cat_name}** за период: *{period_names.get(period)}*."
+        text = f"📭 В тебе нема записів по категорії **{cat_name}** за період: *{period_names.get(period)}*."
         await callback.message.edit_text(text, parse_mode="Markdown")
         await callback.answer()
         return
 
     # Формирование отчета
-    final_text = f"📊 Аналитика: **{cat_name}** ({period_names.get(period)})\n\n"
+    final_text = f"📊 Аналітика: **{cat_name}** ({period_names.get(period)})\n\n"
     total_gold = 0
     total_exp = 0
 
     for act_name, values in stats.items():
         final_text += f"🔹 **{act_name}**\n"
         final_text += f"   💰 Золото: {values['gold']}\n"
-        final_text += f"   ⭐️ Опыт: {values['exp']}\n\n"
-        total_gold += values['gold']
-        total_exp += values['exp']
+        final_text += f"   ⭐️ Досвід: {values['exp']}\n"
+
+        # Динамический вывод материалов (только если они выпадали)
+        materials = []
+        if values['nebesna'] > 0: materials.append(f"⭐ Небесна: {values['nebesna']}")
+        if values['svaroja'] > 0: materials.append(f"🪨 Сварожа: {values['svaroja']}")
+        if values['fragment'] > 0: materials.append(f"🧩 Фрагмент: {values['fragment']}")
+        if values['armor_scroll'] > 0: materials.append(f"🛡 Сувій обладунку: {values['armor_scroll']}")
+        if values['weapon_scroll'] > 0: materials.append(f"🗡 Сувій зброї: {values['weapon_scroll']}")
+
+        if materials:
+            final_text += f"   📦 Матеріали: {', '.join(materials)}\n"
+        final_text += "\n"
 
     if activity == "all" and len(stats) > 1:
-        final_text += f"📈 **ИТОГО:**\n💰 {total_gold} | ⭐️ {total_exp}"
+        final_text += f"📈 **РАЗОМ:**\n💰 {total_gold} | ⭐️ {total_exp}"
 
     # Даем возможность выбрать другой период, не возвращаясь в самое начало
     await callback.message.edit_text(final_text, reply_markup=period_kb, parse_mode="Markdown")
