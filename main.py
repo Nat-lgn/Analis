@@ -46,12 +46,21 @@ main_menu = ReplyKeyboardMarkup(
 
 
 category_kb = InlineKeyboardMarkup(inline_keyboard=[
+<<<<<<< HEAD
     [InlineKeyboardButton(text="🏹 Лови", callback_data="cat_Лови"),
      InlineKeyboardButton(text="🏕 Походи", callback_data="cat_Походи")],
     [InlineKeyboardButton(text="📜 Справи", callback_data="cat_Справи"),
      InlineKeyboardButton(text="👹 Бос", callback_data="cat_Бос")],
     [InlineKeyboardButton(text="⛰ Катакомби", callback_data="cat_Катакомби"),
      InlineKeyboardButton(text="🛡 Стояння", callback_data="cat_Стояння")],
+=======
+    [InlineKeyboardButton(text="🏹 Лови", callback_data="cat_Ловы"),
+     InlineKeyboardButton(text="🏕 Походи", callback_data="cat_Походы")],
+    [InlineKeyboardButton(text="📜 Справи", callback_data="cat_Ежедневные задания"),
+     InlineKeyboardButton(text="👹 Бос", callback_data="cat_Босс")],
+    [InlineKeyboardButton(text="⛰ Катакомби", callback_data="cat_Катакомбы"),
+     InlineKeyboardButton(text="🛡 Стояння", callback_data="cat_Стояние")],
+>>>>>>> 169f0021704acdae9385ee886ead98ae312e3cf1
     [InlineKeyboardButton(text="🌍 ВСІ КАТЕГОРІЇ", callback_data="cat_all")]
 ])
 
