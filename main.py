@@ -14,9 +14,6 @@ from aiogram.fsm.state import State, StatesGroup
 from parser import parse_report
 from database import init_db, save_report, get_analytics
 
-# ==========================================
-# 1. НАСТРОЙКА ЛОГИРОВАНИЯ
-# ==========================================
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -27,15 +24,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ==========================================
-# 2. FSM СОСТОЯНИЯ
-# ==========================================
+
 class StatFlow(StatesGroup):
     waiting_for_period = State()
 
-# ==========================================
-# 3. КОНФИГУРАЦИЯ И МЕНЮ
-# ==========================================
+
 load_dotenv()
 BOT_TOKEN = os.getenv('BOT_TOKEN')
 
@@ -51,7 +44,7 @@ main_menu = ReplyKeyboardMarkup(
     input_field_placeholder="Надішли мені звіт із гри..."
 )
 
-# Клавиатура Шаг 1 (Категории)
+
 category_kb = InlineKeyboardMarkup(inline_keyboard=[
     [InlineKeyboardButton(text="🏹 Лови", callback_data="cat_Ловы"),
      InlineKeyboardButton(text="🏕 Походи", callback_data="cat_Походы")],
@@ -108,13 +101,11 @@ async def help_handler(message: types.Message, state: FSMContext):
 async def forward_handler(message: types.Message, state: FSMContext):
     await state.clear()
     try:
-        # Безопасное извлечение: берем text, если его нет - берем caption
         raw_text = message.text or message.caption
 
         report = parse_report(raw_text)
         if report:
             orig_date = message.forward_origin.date if message.forward_origin else message.date
-            # Хэш тоже должен строиться на основе raw_text
             raw_string = f"{message.from_user.id}_{orig_date.timestamp()}_{raw_text}"
             report_hash = hashlib.md5(raw_string.encode()).hexdigest()
 
@@ -128,10 +119,8 @@ async def forward_handler(message: types.Message, state: FSMContext):
             )
 
             if is_saved:
-                # Базовый текст с золотом и опытом
                 reply_text = f"✅ Записано!\nАктивність: {report.activity}\n+{report.gold} 💰 | +{report.exp} ⭐️"
 
-                # Динамическая сборка списка выпавших материалов
                 materials = []
                 if report.nebesna > 0: materials.append(f"⭐ Небесна: {report.nebesna}")
                 if report.svaroja > 0: materials.append(f"🪨 Сварожа: {report.svaroja}")
@@ -139,7 +128,6 @@ async def forward_handler(message: types.Message, state: FSMContext):
                 if report.armor_scroll > 0: materials.append(f"🛡 Сувій обладунку: {report.armor_scroll}")
                 if report.weapon_scroll > 0: materials.append(f"🗡 Сувій зброї: {report.weapon_scroll}")
 
-                # Если список не пустой, добавляем его к ответу
                 if materials:
                     reply_text += f"\n📦 Здобуто: {', '.join(materials)}"
 
