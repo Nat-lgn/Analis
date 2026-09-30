@@ -5,7 +5,6 @@ logger = logging.getLogger(__name__)
 DB_NAME = "zapaleni_stats.db"
 
 async def init_db():
-    """Создает таблицу с поддержкой уникальных хэшей для защиты от дубликатов."""
     async with aiosqlite.connect(DB_NAME) as db:
         await db.execute('''
                     CREATE TABLE IF NOT EXISTS game_stats (
@@ -44,7 +43,6 @@ async def save_report(user_id: int, activity: str, gold: int, exp: int,
             return False
 
 async def get_analytics(user_id: int, activity: str, period: str) -> dict:
-    """Универсальная аналитика: фильтрует по дате и категории, группирует результат."""
     query = """
             SELECT activity, SUM(gold), SUM(exp), 
                    SUM(nebesna), SUM(svaroja), SUM(fragment), 
