@@ -67,7 +67,7 @@ def parse_report(text: str) -> Optional[GameReport]:
         elif any(trigger in text_lower for trigger in
                  ["стежки повертають тебе додому", "винесено з печери", "ти виходиш"]):
             activity = "Похід"
-        elif any(trigger in text_lower for trigger in ["лови:", "катакомби", "завдано сторожу", "загін поліг"]):
+        elif any(trigger in text_lower for trigger in ["лови:", "катакомби", "завдано сторожу", "загін поліг", "згоріла"]):
             activity = "Лови"
         else:
             return None
